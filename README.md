@@ -1,80 +1,93 @@
 # Iron Zapper
 
-A personal native Mac uninstaller. Drop an application, review its associated files, and move the selected items to Trash.
+**A native macOS uninstaller that explains what it finds before moving anything.**
 
-**Apple Silicon and macOS 26+ only.** Native SwiftUI Liquid Glass controls hosted in an AppKit window. No third-party runtime dependencies or older-platform fallbacks.
+Drop an application, review its associated files and ownership evidence, then
+move the selected items to Trash. Iron Zapper combines SwiftUI and AppKit with a
+Swift discovery and removal core, plus an optional privileged helper.
 
-## Run
+Built by [Stuart Bowness](https://github.com/stuartbowness), with AI coding
+assistance. [MIT licensed](LICENSE). No third-party runtime dependencies.
 
-Open `/Applications/Iron Zapper.app` (the installed build), or `build/Iron Zapper.app` after building.
+## Why this exists
 
-1. Drop one `.app` (including Mac-installed iPhone/iPad apps) onto the window, use **Choose Application**, or press ⌘O.
-2. Review the selected files. Expand a row to see its path and ownership evidence.
-3. Select **Zap!**. A running target must quit first; Iron Zapper never force-quits it.
-4. Read the result. Shared, inaccessible, and failed items are reported rather than silently removed.
+Finding files with a similar name is easy. Deciding whether they belong only to
+one application is harder. Applications share containers, install background
+services, and leave data that may contain a user's saved work.
 
-Application data can include profiles, databases, and saved work. Name-only user-data matches start unchecked. App-group containers and uncertain system files are protected.
+Iron Zapper makes that uncertainty visible:
 
-For protected Library locations, grant Full Disk Access only if the scan reports that it cannot read them. Administrator privileges do not bypass macOS privacy controls.
+- Each candidate carries ownership evidence and a file-identity snapshot.
+- Exact, exclusive matches start selected; name-only user data starts unchecked.
+- Shared app groups and uncertain system files stay protected.
+- Removal rescans ownership and rejects changed items before mutation.
+- Files move to Trash; failures do not fall back to permanent deletion.
 
-## System cleanup
+This is a source project for **Apple Silicon and macOS 26+**. Privileged cleanup
+is implemented, but its installed, administrator-approved workflow has **not been
+verified end to end**. See [validation and limitations](VALIDATION.md). No notarized
+download is provided.
 
-Use **Iron Zapper → Enable System Cleanup…**, then approve Iron Zapper under **System Settings → General → Login Items & Extensions**. The signed helper is embedded in the app and registered through SMAppService. Keep the installed app in `/Applications` while the helper is enabled. An additional administrator authentication is required for each privileged removal operation.
+## Start with the tests
 
-The helper accepts only a matching Apple-signed team/application identity, rejects debuggable peers, independently scans ownership, and restricts operations to supported Library paths. It cannot execute arbitrary caller-supplied commands. It stops verified launch services before moving their files.
+Requires Xcode with Swift 6.2+ and a macOS 26-or-newer SDK. Core tests do not need a
+signing identity, administrator privileges, or helper registration.
 
-Use **Iron Zapper → Disable System Cleanup** before moving, replacing, or uninstalling Iron Zapper. macOS can require renewed approval after the helper changes. Local Apple Development signing is used on this machine; this is not a notarized distribution build. Actual registration behaviour must be verified on the target Mac.
+```sh
+git clone git@github.com:stuartbowness/ironzapper.git
+cd ironzapper
+scripts/test.sh
+```
 
-## Recovery and limits
+The tests exercise ownership decisions, shared packages, changed files, symlinks,
+wrapped iOS apps, and privileged-path rejection. Real Trash tests use disposable
+fixtures and verify recoverability. They do not uninstall your applications.
 
-- Ordinary items use macOS's FileManager Trash API.
-- Privileged regular files go into a unique `IronZapper-…` recovery folder in the signed-in user's Trash, with original-location instructions. Original privileged file ownership is retained. Finder **Put Back** is not available for those recovery folders; reinstall an app to restore its background-service registration.
-- Files are never permanently deleted as a fallback. Cross-volume privileged moves, symlink paths, unsafe system-directory permissions, and unsupported file types are refused.
-- System data is eligible when all readable installer receipts show one owning package that installs only the selected app. Shared package files and multi-app suites are preserved. Receipt-owned directories and unrecorded system data stay in place.
-- App groups stay protected. Standard application locations and the current user's Library are searched; other users, keychains, arbitrary custom install locations, drivers, and system extensions are not exhaustively covered.
-- Embedded SMAppService jobs, extensions, and vendor-managed installations can require the vendor's own uninstaller. A warning in the scan explains this. No universal dependency registry exists, so Iron Zapper does not promise removal of every leftover.
-- Cleanup is not a transaction across all files. After a failure, subsequent selected items are preserved. A stopped service may need its app reinstalled even if its file could not be moved.
-- Operation records contain paths and outcomes, not file contents, under `~/Library/Application Support/ai.toyo.IronZapper/Operations`.
+For a read-only JSON scan of an application you choose:
 
-## Build and tests
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  swift run ironzapper-scan /Applications/Example.app
+```
 
-Requires Xcode with a macOS 26-or-newer SDK and an Apple Development or Developer ID Application signing identity in the local keychain.
+Replace the example path with an installed app. Scan output contains local paths;
+review it before sharing.
+
+## Build the app
+
+A valid Apple Development or Developer ID Application signing identity must be
+available in your keychain. Set `SIGN_IDENTITY` to select one explicitly.
 
 ```sh
 scripts/build.sh
-scripts/test.sh
-scripts/test-app.sh
 scripts/verify-signatures.sh
 open "build/Iron Zapper.app"
 ```
 
-The build script selects Xcode through `DEVELOPER_DIR` without changing global developer settings. Set `SIGN_IDENTITY` to choose a specific identity. Both binaries are ARM64 with a macOS 26 deployment target and hardened runtime, without `get-task-allow`.
+Scripts use `DEVELOPER_DIR` (default `/Applications/Xcode.app/Contents/Developer`)
+without changing global Xcode settings. App and helper are ARM64 executables with
+hardened runtime and no debug entitlement. Signing does not notarize the app.
 
-`IronZapper.xcodeproj` exposes the same build script and a Core Tests target. Open `Package.swift` for Swift package test navigation. `scripts/make-project.py` regenerates the Xcode source groups after adding files. The build script is the single source of build/signing configuration; the app and helper compile as separate executables.
+The Xcode project wraps the same build script; `Package.swift` owns the core test
+targets. See [usage and recovery](docs/usage.md) before removing data or enabling
+the optional system helper.
 
-Read-only diagnostic scan:
+## For engineers reviewing the project
 
-```sh
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run ironzapper-scan /Applications/AppZapper.app
-```
+Start with [the architecture](docs/architecture.md), then follow the boundaries:
 
-Manual privileged verification (disposable fixture only):
+| Area | Read |
+| --- | --- |
+| Application identity and wrapped bundles | [AppInspector.swift](Sources/IronZapperCore/AppInspector.swift) |
+| Candidate discovery and ownership evidence | [Scanner.swift](Sources/IronZapperCore/Scanner.swift), [Receipts.swift](Sources/IronZapperCore/Receipts.swift) |
+| Review state, cancellation, and removal orchestration | [AppModel.swift](App/AppModel.swift) |
+| Authenticated helper and independent revalidation | [Helper/main.swift](Helper/main.swift), [HelperProtocol.swift](Shared/HelperProtocol.swift) |
+| Descriptor-based privileged file moves | [SecureTrash.swift](Helper/SecureTrash.swift) |
+| Behavioural fixtures | [Tests](Tests/IronZapperCoreTests) |
 
-```sh
-# First enable system cleanup and approve the macOS prompt.
-scripts/probe-helper.sh
-sudo scripts/create-system-fixture.sh
-```
+The important tradeoff is conservative coverage: preserving uncertain data is
+preferable to claiming every leftover was removed. File moves are not one atomic
+transaction, and restoring a service's file does not restore its registration.
+Vendor uninstallers remain necessary for some installations.
 
-Drop the exact fixture app printed by the script into Iron Zapper. Select its launch daemon, move both to Trash, and verify that `launchctl print system/<printed label>` reports the service absent and that the root-owned plist is recoverable in Trash. The fixture runs only `/bin/sleep` from its own app bundle. The script prints cleanup instructions if testing is interrupted.
-
-## Source layout
-
-- `Sources/IronZapperCore`: application identity, filesystem discovery, receipt ownership, removal policy, operation records.
-- `App`: SwiftUI views, AppKit lifecycle, state model, authenticated helper client.
-- `Shared`: XPC protocol and peer signing requirements.
-- `Helper`: independently validated privileged operations and descriptor-based Trash moves.
-- `Tests`: disposable ownership/removal fixtures and privileged-path rejection tests.
-- `Resources`: signed-bundle metadata, generated icon artwork, packaged icon, and exact generation prompt in `ICON.md`.
-
-See `VALIDATION.md` for what has actually been verified and what still requires a macOS 26 machine or interactive administrator approval.
+[Contributing](CONTRIBUTING.md) · [Validation](VALIDATION.md) · [Asset provenance](docs/provenance.md)

@@ -5,3 +5,11 @@ build/
 xcuserdata/
 Artifacts/*.png
 Artifacts/*.json
+
+# Local diagnostics and signing material
+Artifacts/
+*.p12
+*.pfx
+*.mobileprovision
+.env
+.env.*

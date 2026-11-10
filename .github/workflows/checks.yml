@@ -1,0 +1,17 @@
+name: Checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  core:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+      - name: Shell syntax
+        run: for script in scripts/*.sh; do bash -n "$script" || exit; done
+      - name: Core and filesystem tests
+        run: scripts/test.sh
