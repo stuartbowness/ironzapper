@@ -9,6 +9,8 @@ compatibility.
 Release cleanup on 2026-11-10 used Apple Silicon, macOS 27.2, and Xcode 27.2:
 
 - All 28 core tests passed.
+- The app-model integration test passed changed-file rejection and successful
+  Trash recovery; its disposable app and preference fixtures were cleaned up.
 - The app and helper built with a local signing identity and passed strict
   signature verification. Their peer requirements rejected an unrelated executable.
 - Shell syntax and local documentation link checks passed.
